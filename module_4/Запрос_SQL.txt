@@ -1,0 +1,108 @@
+SELECT DISTINCT d.flight_id,
+                d.city AS departure_city,
+                ar.arrival_city,
+                d.latitude AS dep_latitude,
+                d.longitude AS dep_longitude,
+                ar.latitude AS arr_latitude,
+                ar.longitude AS arr_longitude,
+                date_part('year', d.actual_departure) AS YEAR,
+                date_part('month', d.actual_departure) AS MONTH,
+                date_part('day', d.actual_departure) AS DAY,
+                EXTRACT (dow FROM d.actual_departure) AS weekday,
+                ac.model,
+                ac.range,
+                tech.fuel_consumption,
+                tech.cruising_speed,
+                d.flight_minutes,
+                fuel_cost.costs AS fuel_cost,
+                (d.flight_minutes/60.0*tech.fuel_consumption)AS flight_fuel,
+                (d.flight_minutes/60.0*tech.fuel_consumption)/1000*fuel_cost.costs AS flight_cost,
+                tfl.count_ticket,
+                bps.count_board,
+                st.count_seat,
+                tfl.sum_ticket,
+                tfl.sum_ticket - (d.flight_minutes/60.0*tech.fuel_consumption)/1000*fuel_cost.costs AS profit,
+                (round(bps.count_board, 2)/st.count_seat) AS aircraft_load_level
+                
+FROM
+        (
+        SELECT  f.*,
+                a.*,
+                date_part('hour', f.scheduled_arrival - f.scheduled_departure)*60 
+                + date_part('minute', f.scheduled_arrival - f.scheduled_departure) AS flight_minutes
+        FROM    dst_project.flights f
+        JOIN    dst_project.airports a ON f.departure_airport=a.airport_code
+                                        AND f.departure_airport='AAQ'
+        WHERE   date_part('month', f.actual_departure) in ('1','2','12')
+                AND f.status='Arrived' 
+        ) AS d
+JOIN    dst_project.aircrafts AS ac ON d.aircraft_code=ac.aircraft_code
+JOIN
+        (
+        SELECT      a2.city AS arrival_city,
+                    a2.latitude,
+                    a2.longitude,
+                    f1.flight_id
+        FROM        dst_project.flights f1
+        JOIN        dst_project.airports a2 ON f1.arrival_airport=a2.airport_code) AS ar ON d.flight_id=ar.flight_id
+        LEFT JOIN
+                    (
+                    SELECT tf.flight_id,
+                            count(tf.ticket_no) AS count_ticket,
+                            sum(tf.amount) AS sum_ticket
+                    FROM    dst_project.ticket_flights AS tf
+                    GROUP BY 1
+                    ) AS tfl ON d.flight_id=tfl.flight_id
+LEFT JOIN
+         (
+          SELECT bp.flight_id,
+                 count(bp.boarding_no) AS count_board
+          FROM   dst_project.boarding_passes AS bp
+          GROUP BY 1
+          ) AS bps ON d.flight_id=bps.flight_id
+LEFT JOIN
+         (
+          SELECT s.aircraft_code,
+                 count(s.seat_no) AS count_seat
+          FROM   dst_project.seats AS s
+          GROUP BY 1
+          ) AS st ON d.aircraft_code=st.aircraft_code
+          
+--Добавим данные о технических характеристиках саамолета
+
+LEFT JOIN
+         (
+          SELECT 'Sukhoi Superjet-100' AS model,
+                 1700 AS fuel_consumption,
+                 830 AS cruising_speed
+          UNION 
+          SELECT 'Boeing 737-300' AS model,
+                 2400 AS fuel_consumption,
+                 780 AS cruising_speed
+         ) AS tech ON ac.model=tech.model
+         
+--Добавим данные о стоимости топлива за каждый месяц в городе Анапа
+
+LEFT JOIN
+         (
+          SELECT 2017 AS years,
+                 01 AS months,
+                 'AAQ' AS departure_airport,
+                 41435 AS costs
+          UNION 
+          SELECT 2017 AS years,
+                 02 AS months,
+                 'AAQ' AS departure_airport,
+                 39553 AS costs
+          UNION 
+          SELECT 2016 AS years,
+                 12 AS months,
+                 'AAQ' AS departure_airport,
+                 38867 AS costs
+          ) AS fuel_cost ON fuel_cost.years in (date_part('year', d.actual_departure))
+                         AND fuel_cost.months in (date_part('month', d.actual_departure))
+                         AND d.departure_airport=fuel_cost.departure_airport
+                         AND d.departure_airport='AAQ'
+                         
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+ORDER BY 24
